@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -6,7 +5,7 @@ import { Task, Category, DailyMeals } from '../types';
 import { TaskCard } from './TaskCard';
 import { TimeGrid } from './TimeGrid';
 import { MealSummary } from './MealSummary';
-import { Utensils, ChevronDown, ChevronUp, Layers } from 'lucide-react';
+import { Layers, ChevronDown, ChevronUp } from 'lucide-react';
 
 interface DroppableContainerProps {
   id: string;
@@ -27,14 +26,14 @@ interface DroppableContainerProps {
   compactMode?: boolean;
 }
 
-export const DroppableContainer: React.FC<DroppableContainerProps> = ({ 
-  id, 
-  title, 
-  tasks, 
+export const DroppableContainer: React.FC<DroppableContainerProps> = ({
+  id,
+  title,
+  tasks,
   categories,
   mealPlan,
-  onEditTask, 
-  onDeleteTask, 
+  onEditTask,
+  onDeleteTask,
   onToggleComplete,
   onMoveStage,
   onEditMealPlan,
@@ -43,11 +42,12 @@ export const DroppableContainer: React.FC<DroppableContainerProps> = ({
   isToday = false,
   subtitle,
   extraHeader,
-  compactMode = false
+  compactMode = false,
 }) => {
   const { setNodeRef, isOver } = useDroppable({ id });
-  const [allDayExpanded, setAllDayExpanded] = useState(false);
+  const [allDayExpanded, setAllDayExpanded] = useState(true);
 
+  // Determine which tasks to show and how
   let displayTasks: Task[] = [];
   let scheduledTasks: Task[] = [];
   let allDayTasks: Task[] = [];
@@ -60,114 +60,182 @@ export const DroppableContainer: React.FC<DroppableContainerProps> = ({
       return a.order - b.order;
     });
   } else {
-    allDayTasks = tasks.filter(t => !t.startTime).sort((a,b) => a.order - b.order);
+    allDayTasks = tasks.filter(t => !t.startTime).sort((a, b) => a.order - b.order);
     scheduledTasks = tasks.filter(t => !!t.startTime);
     displayTasks = allDayTasks;
   }
 
-  const totalDuration = tasks.filter(t => !t.completed).reduce((acc, t) => acc + t.duration, 0);
-  const hours = Math.floor(totalDuration / 60);
-  const minutes = totalDuration % 60;
-  const timeString = `${hours > 0 ? `${hours}h ` : ''}${minutes}m`;
+  const pendingMinutes = tasks.filter(t => !t.completed).reduce((s, t) => s + t.duration, 0);
+  const timeLabel = pendingMinutes > 0
+    ? pendingMinutes >= 60
+      ? `${Math.floor(pendingMinutes / 60)}h ${pendingMinutes % 60 ? `${pendingMinutes % 60}m` : ''}`
+      : `${pendingMinutes}m`
+    : null;
 
   const hasMeals = mealPlan && (mealPlan.breakfast.title || mealPlan.lunch.title || mealPlan.dinner.title);
 
+  // ── Backlog / Inbox mode ────────────────────────────────────────────────────
+  if (isBacklog) {
+    return (
+      <div
+        ref={setNodeRef}
+        className={`min-h-[80px] flex flex-col transition-colors rounded-xl ${
+          isOver ? 'bg-indigo-50/60' : ''
+        }`}
+      >
+        <SortableContext id={id} items={displayTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+          {displayTasks.length === 0 ? (
+            <div className={`flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed transition-colors ${
+              isOver ? 'border-indigo-300 bg-indigo-50' : 'border-stone-200'
+            }`}>
+              <span className="text-xs text-stone-400 font-medium">Drop tasks here</span>
+            </div>
+          ) : (
+            displayTasks.map(task => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                categoryData={categories.find(c => c.id === task.categoryId)}
+                onEdit={onEditTask}
+                onDelete={onDeleteTask}
+                onToggleComplete={onToggleComplete}
+                onMoveStage={onMoveStage}
+              />
+            ))
+          )}
+        </SortableContext>
+      </div>
+    );
+  }
+
+  // ── Compact / Month mode ────────────────────────────────────────────────────
+  if (compactMode) {
+    return (
+      <div className="flex flex-col h-full">
+        {/* Date header */}
+        <div className={`px-2 py-1.5 flex items-center justify-between border-b border-stone-100 flex-shrink-0 ${isToday ? 'bg-indigo-50/50' : ''}`}>
+          <span className={`text-xs font-semibold ${isToday ? 'text-indigo-600' : 'text-stone-600'}`}>
+            {title}
+          </span>
+          {timeLabel && (
+            <span className="text-[10px] text-stone-400 font-medium">{timeLabel}</span>
+          )}
+        </div>
+
+        <div
+          ref={setNodeRef}
+          className={`flex-1 p-1.5 space-y-0.5 overflow-hidden transition-colors ${isOver ? 'bg-indigo-50/40' : ''}`}
+        >
+          <SortableContext id={id} items={displayTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+            {displayTasks.map(task => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                categoryData={categories.find(c => c.id === task.categoryId)}
+                onEdit={onEditTask}
+                onDelete={onDeleteTask}
+                onToggleComplete={onToggleComplete}
+                onMoveStage={onMoveStage}
+              />
+            ))}
+          </SortableContext>
+        </div>
+
+        {compactMode && onEditMealPlan && (
+          <div className="flex-shrink-0 border-t border-stone-100">
+            <MealSummary meals={mealPlan} onClick={onEditMealPlan} compactMode />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Full Day Column (Today / Week) ──────────────────────────────────────────
   return (
-    <div className={`flex flex-col h-full rounded-xl overflow-hidden border-2 transition-colors ${
-      isBacklog 
-        ? 'bg-slate-100 border-slate-300' 
-        : isOver 
-          ? 'bg-indigo-100/50 border-indigo-500' 
-          : 'bg-slate-50 border-transparent'
-    }`}>
-      <div className={`p-4 flex-shrink-0 flex justify-between items-center border-b ${isToday ? 'bg-indigo-100/30 border-indigo-200' : 'bg-slate-100 border-slate-200'}`}>
-         <div className="flex flex-col">
-            <h3 className={`font-black text-sm uppercase tracking-widest leading-none ${isToday ? 'text-indigo-900' : 'text-slate-700'}`}>
-              {title}
-            </h3>
-            {subtitle && <span className="text-[11px] text-slate-500 font-black mt-1 uppercase tracking-wider">{subtitle}</span>}
-         </div>
-         <div className="flex items-center gap-2">
-            {timeString !== '0m' && (
-                <span className="text-[10px] font-black font-mono text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-300 shadow-sm">
-                {timeString}
-                </span>
-            )}
-            {compactMode && onEditMealPlan && (
-               <button 
-                 onClick={(e) => { e.stopPropagation(); onEditMealPlan(); }}
-                 className={`flex items-center gap-0.5 px-2 py-0.5 rounded border-2 transition-colors font-black ${
-                    hasMeals 
-                     ? 'bg-green-600 text-white border-green-700 hover:bg-green-700' 
-                     : 'text-slate-400 border-slate-300 hover:text-green-700 hover:bg-green-50 hover:border-green-600'
-                 }`}
-               >
-                 <Utensils size={10} strokeWidth={3} />
-                 <span className="text-[10px]">+</span>
-               </button>
-            )}
-         </div>
-         {extraHeader}
+    <div className={`flex flex-col h-full transition-colors ${isOver ? 'bg-indigo-50/20' : ''}`}>
+      {/* Column header */}
+      <div className={`px-4 py-3 border-b flex items-center justify-between flex-shrink-0 ${
+        isToday ? 'bg-indigo-50/40 border-indigo-100' : 'bg-white border-stone-100'
+      }`}>
+        <div>
+          <div className={`text-sm font-semibold ${isToday ? 'text-indigo-700' : 'text-stone-700'}`}>
+            {title}
+          </div>
+          {subtitle && (
+            <div className="text-xs text-stone-400 mt-0.5">{subtitle}</div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {timeLabel && (
+            <span className="text-[11px] text-stone-400 bg-stone-100 px-2 py-0.5 rounded-full font-medium">
+              {timeLabel}
+            </span>
+          )}
+          {extraHeader}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto scrollbar-thin flex flex-col">
-        {!isBacklog && !compactMode ? (
-          <div className="flex-shrink-0 border-b border-slate-200 bg-white/50">
-            <button 
-              onClick={() => setAllDayExpanded(!allDayExpanded)}
-              className="w-full px-4 py-2 flex items-center justify-between text-[11px] font-black text-slate-500 hover:text-indigo-600 transition-colors bg-slate-100/40"
-            >
-              <div className="flex items-center gap-2 uppercase tracking-widest">
-                <Layers size={14} className="text-slate-400" />
-                <span>All Day Tasks ({allDayTasks.length})</span>
-              </div>
-              {allDayTasks.length > 0 && (allDayExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />)}
-            </button>
-            
-            <div 
+      {/* Scrollable body */}
+      <div className="flex-1 overflow-y-auto">
+        {/* All-day tasks section */}
+        <div className="border-b border-stone-100 bg-stone-50/50">
+          <button
+            onClick={() => setAllDayExpanded(!allDayExpanded)}
+            className="w-full px-4 py-2 flex items-center gap-2 text-[11px] font-medium text-stone-400 hover:text-stone-600 transition-colors"
+          >
+            <Layers size={12} />
+            <span>Unscheduled ({allDayTasks.length})</span>
+            {allDayTasks.length > 0 && (
+              allDayExpanded ? <ChevronUp size={12} className="ml-auto" /> : <ChevronDown size={12} className="ml-auto" />
+            )}
+          </button>
+
+          {(allDayExpanded || allDayTasks.length === 0) && (
+            <div
               ref={setNodeRef}
-              className={`p-3 space-y-2 overflow-hidden transition-all duration-300 ease-in-out ${
-                allDayExpanded || allDayTasks.length === 0 ? 'max-h-[1000px] opacity-100' : 'max-h-24 overflow-hidden mask-fade'
-              }`}
-              style={(!allDayExpanded && allDayTasks.length > 1) ? { maskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)', WebkitMaskImage: 'linear-gradient(to bottom, black 50%, transparent 100%)' } : {}}
+              className={`px-3 pb-3 space-y-1 min-h-[44px] transition-colors ${isOver ? 'bg-indigo-50/60' : ''}`}
             >
               <SortableContext id={id} items={allDayTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
                 {allDayTasks.length === 0 ? (
-                  <div className="py-2 text-center text-[10px] font-black uppercase text-slate-300 tracking-widest">No All-Day Tasks</div>
+                  <div className={`h-10 rounded-lg border-2 border-dashed flex items-center justify-center transition-colors ${
+                    isOver ? 'border-indigo-300' : 'border-stone-200'
+                  }`}>
+                    <span className="text-[10px] text-stone-300">Drag tasks here or click grid to create</span>
+                  </div>
                 ) : (
                   allDayTasks.map(task => (
-                    <TaskCard key={task.id} task={task} categoryData={categories.find(c => c.id === task.categoryId)} onEdit={onEditTask} onDelete={onDeleteTask} onToggleComplete={onToggleComplete} onMoveStage={onMoveStage} />
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      categoryData={categories.find(c => c.id === task.categoryId)}
+                      onEdit={onEditTask}
+                      onDelete={onDeleteTask}
+                      onToggleComplete={onToggleComplete}
+                      onMoveStage={onMoveStage}
+                    />
                   ))
                 )}
               </SortableContext>
             </div>
-          </div>
-        ) : (
-          <div ref={setNodeRef} className="p-3 space-y-2 min-h-[60px] flex-1">
-            <SortableContext id={id} items={displayTasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-              {displayTasks.length === 0 ? (
-                <div className="h-32 flex flex-col items-center justify-center text-slate-400 bg-slate-200/50 border-2 border-dashed border-slate-300 rounded-xl m-2">
-                  <span className="text-xs font-bold uppercase tracking-widest">{isBacklog ? 'Empty Backlog' : 'No Tasks'}</span>
-                </div>
-              ) : (
-                displayTasks.map(task => (
-                  <TaskCard key={task.id} task={task} categoryData={categories.find(c => c.id === task.categoryId)} onEdit={onEditTask} onDelete={onDeleteTask} onToggleComplete={onToggleComplete} onMoveStage={onMoveStage} />
-                ))
-              )}
-            </SortableContext>
-          </div>
-        )}
+          )}
+        </div>
 
-        {!isBacklog && !compactMode && (
-          <div className="relative bg-white flex-1 min-h-[400px]">
-            <TimeGrid dateStr={id} tasks={scheduledTasks} onEditTask={onEditTask} onCreateAtTime={onCreateAtTime} />
-          </div>
-        )}
+        {/* Time grid */}
+        <div className="relative bg-white">
+          <TimeGrid
+            dateStr={id}
+            tasks={scheduledTasks}
+            categories={categories}
+            onEditTask={onEditTask}
+            onCreateAtTime={onCreateAtTime}
+          />
+        </div>
       </div>
-      
-      {!isBacklog && !compactMode && onEditMealPlan && (
-        <div className="flex-shrink-0 border-t border-slate-200 shadow-lg">
-          <MealSummary meals={mealPlan} onClick={onEditMealPlan} compactMode={compactMode} />
+
+      {/* Meal summary footer */}
+      {onEditMealPlan && (
+        <div className="flex-shrink-0 border-t border-stone-100 shadow-sm">
+          <MealSummary meals={mealPlan} onClick={onEditMealPlan} compactMode={false} />
         </div>
       )}
     </div>
